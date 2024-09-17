@@ -1,7 +1,7 @@
-#for main message
+#for the main message
 import requests
 from twilio.rest import Client
-#for prediction message 
+#for the prediction message 
 import yfinance as yf 
 from sklearn.tree import DecisionTreeRegressor
 import warnings
