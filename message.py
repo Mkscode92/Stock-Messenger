@@ -13,8 +13,8 @@ COMPANY_NAME = ["Nvidia", "Walmart", "Microsoft", "Meta", "Costco"]
 STOCK_ENDPOINT = "https://www.alphavantage.co/query"
 NEWS_ENDPOINT = "https://newsapi.org/v2/everything"
 
-STOCK_API_KEY = "KYMB8YW9DYC0PUUQ"
-NEWS_API_KEY = "f15bb4f5f5cd43f78c6fccc3125f3add"
+STOCK_API_KEY = #ENTER API KEY HERE from alphaadvantage
+NEWS_API_KEY = #ENTER API KEY HERE from newsapi
 
 TWILIO_SID = #ENTER SID HERE
 TWILIO_AUTH_TOKEN = #ENTER TOKEN HERE
@@ -95,7 +95,7 @@ for i in range(5):
     formatted_message1 = f"{STOCK_NAME[i]}: {up_down} {cut_percent}%\nMA: {MA}{val}\nHeadline: {one_article['title']}.\nBrief: {one_article['description']}"
     fullmessage1.append(formatted_message1)
 
-    #for predicting closing price from opening price, quarterly earnings dates, if earnings date notifier - prediction message
+    #for predicting the closing price from the opening price, quarterly earnings dates, if earnings date notifier - prediction message
 
     warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
