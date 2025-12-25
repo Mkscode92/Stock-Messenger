@@ -1,32 +1,43 @@
-#for the main message
 import requests
 from twilio.rest import Client
-#for the prediction message 
 import yfinance as yf 
 from sklearn.tree import DecisionTreeRegressor
 import warnings
 import datetime 
+import pywhatkit
+from transformers import AutoTokenizer 
+from transformers import AutoModelForSequenceClassification  
+from scipy.special import softmax
+import csv
+import urllib
+import numpy as np
 
-STOCK_NAME = ["NVDA", "WMT", "MSFT", "META", "COST"]
-COMPANY_NAME = ["Nvidia", "Walmart", "Microsoft", "Meta", "Costco"]
+STOCK_NAME = ["NVDA", "WMT", "META"] #you can list as many stocks tickers as you like 
+COMPANY_NAME = ["Nvidia", "Walmart", "Meta"] #you can list as many stock names as you like 
 
 STOCK_ENDPOINT = "https://www.alphavantage.co/query"
 NEWS_ENDPOINT = "https://newsapi.org/v2/everything"
 
-STOCK_API_KEY = #ENTER API KEY HERE from alphaadvantage
-NEWS_API_KEY = #ENTER API KEY HERE from newsapi
+STOCK_API_KEY = ""
+NEWS_API_KEY = ""
 
-TWILIO_SID = #ENTER SID HERE
-TWILIO_AUTH_TOKEN = #ENTER TOKEN HERE
-VIRTUAL_TWILIO_NUMBER = #ENTER NUMBER HERE
-VERIFIED_NUMBER = #ENTER YOUR PHONE NUMBER HERE
+TWILIO_SID = ""
+TWILIO_AUTH_TOKEN = "" 
+VIRTUAL_TWILIO_NUMBER = "" #Your Virtual Phone Number from Twilio 
+VERIFIED_NUMBER = "" #Your Mobile Phone Number, used for SMS messaging and Whatsapp Messaging
 
 
 fullmessage1 = []
 fullmessage2 = []
 
-for i in range(5):
-    #for news, 7 day MA, etc, up/down indicator - main message 
+for i in range(len(STOCK_NAME)):
+    #For news, 7 day MA, etc, up/down indicator - main message 
+    #Message PART ONE:
+    # 1. Lists the name of the stock 
+    # 2. Indicates whether the stock price has gone up/down, including the percentage 
+    # 3. Lists the 7 day moving average, and whether it increased/decreased
+    # 4. Lists the most recent and relevant news headline and brief of the stock 
+    # 5. The sentiment 
     stock_params = { 
         "function" : "TIME_SERIES_DAILY",
         "symbol" : STOCK_NAME[i],
@@ -92,10 +103,43 @@ for i in range(5):
     one_article = news_articles[0] # first article
     print(one_article)
 
-    formatted_message1 = f"{STOCK_NAME[i]}: {up_down} {cut_percent}%\nMA: {MA}{val}\nHeadline: {one_article['title']}.\nBrief: {one_article['description']}"
-    fullmessage1.append(formatted_message1)
+    formatted_message1 = f"{STOCK_NAME[i]}: {up_down} {cut_percent}%\nMA: {MA}{val}\n\nHeadline: {one_article['title']}.\nBrief: {one_article['description']}" 
 
-    #for predicting the closing price from the opening price, quarterly earnings dates, if earnings date notifier - prediction message
+    #sentiment calculator using NLP
+    sentiment_message = ""
+    MODEL = f"cardiffnlp/twitter-roberta-base-sentiment"
+    tokenizer = AutoTokenizer.from_pretrained(MODEL) 
+    model = AutoModelForSequenceClassification.from_pretrained(MODEL)
+
+    labels=[]
+    mapping_link = f"https://raw.githubusercontent.com/cardiffnlp/tweeteval/main/datasets/sentiment/mapping.txt"
+    with urllib.request.urlopen(mapping_link) as f:
+        html = f.read().decode('utf-8').split("\n")
+        csvreader = csv.reader(html, delimiter='\t')
+    labels = [row[1] for row in csvreader if len(row) > 1]
+
+    encoded_text = tokenizer(formatted_message1, return_tensors = "pt") #changes it to 1s and 0s, in pytorch format 
+    output = model(**encoded_text) #run model on encoded text 
+    scores = output[0][0].detach().numpy()
+    scores = softmax(scores)
+
+    ranking = np.argsort(scores)
+    ranking = ranking[::-1]
+
+    for j in range(scores.shape[0]):
+        l = labels[ranking[j]]
+        s = scores[ranking[j]]
+        sentiment_message += f"{j+1}) {l} {np.round(float(s) * 100, 1)}%\n"
+
+    formatted_message1 += f"\n\nSentiment about {COMPANY_NAME[i]} stock:\n{sentiment_message}"
+    fullmessage1.append(formatted_message1)
+    print(fullmessage1)
+    
+
+    ########################################################################################################################
+    #Message PART TWO:
+    # 1. Predicting the closing price from the opening price using machine learning 
+    # 2. quarterly earnings dates
 
     warnings.filterwarnings("ignore", message="X does not have valid feature names")
 
@@ -104,49 +148,62 @@ for i in range(5):
 
     data = yf.download(STOCK_NAME[i], period="5y")
     stock = yf.Ticker(STOCK_NAME[i])
+    try:
+        calendar = stock.calendar
 
-    q1 = float(input(f'Enter the open for {COMPANY_NAME[i]}: ')) #USE
-    # q2 = float(input("Enter the high: "))
-    # q3 = float(input("Enter the low: "))
+        # Check if 'Earnings Date' is available in the calendar data
+        if 'Earnings Date' in calendar:
+            earnings_date = calendar['Earnings Date'][0]  # Take the first date if available
+            print(f"The next earnings date for {COMPANY_NAME[i]} is: {earnings_date}")
+        else:
+            print("Next earnings date not available in the calendar data.")
 
-    features = ["Open"] #["Open", "High", "Low"]
+    except Exception as e:
+        print(f"An error occurred: {e}")
+
+    # predicts the closing price based on user input
+    q1 = float(input(f'Enter the open for {COMPANY_NAME[i]}: ')) 
+
+    features = ["Open"] 
     X = data[features]
     y = data["Close"]
 
     dtree = DecisionTreeRegressor()
     dtree.fit(X, y)
 
-    # predict the close price based on user input
-    result = dtree.predict([[q1]]) #[[q1, q2, q3]]
-    result = "{:.2f}".format(result[0]) #USE
+    result = dtree.predict([[q1]]) 
+    result = "{:.2f}".format(result[0]) 
     print("Predicted Closing Price: ", result)
 
-    #converts the earnings times to strings and adds them to a list for comparison 
-    earnings_info = stock.earnings_dates.head(5)
-    earnings_dates = earnings_info.index.strftime('%Y-%m-%d').tolist()
-    print(f'{COMPANY_NAME[i]} Earnings Dates')
-    print(*earnings_dates, sep ="\n")
-    earnings = "\n".join(earnings_dates) #USE
-    
-    notification = ""
-    if date in earnings_dates: 
-        notification = f'{COMPANY_NAME[i]} earnings come out today, {date} after the market closes! \n\nAlso check out the recent news for {COMPANY_NAME[i]} to decide if you should buy or sell before/after the earnings release.' #USE
-    else: 
-        notification = f'No quarterly earnings today, {date}, for {COMPANY_NAME[i]}.' #USE
-
-    formatted_message2 = f"{COMPANY_NAME[i]}\nOpening Price Today: {q1}\nPredicted Closing Price: {result}\nQuarterly Earnings Dates:\n{earnings}\n{notification}"
+    formatted_message2 = f"{COMPANY_NAME[i]}:\nOpening Price Today: {q1}\nPredicted Closing Price: {result}\nNext Quarterly Earnings Date:\n-> {earnings_date}\n"
     fullmessage2.append(formatted_message2)
 
+#putting the message together 
 mainmessage = "\n\n".join(fullmessage1)
 predictionmessage = "\n\n".join(fullmessage2)
 
 messages = [mainmessage, predictionmessage]
 
 for i in range(2):
-    client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
-    message = client.messages.create(
-        body=messages[i],
-        from_=VIRTUAL_TWILIO_NUMBER,
-        to=VERIFIED_NUMBER
-    )
+    #Two options for text - sms or whatsapp. Choose the first, the other, or both. The choice is yours. 
 
+    # SMS via Twilio - First the Stock News Update, and then the Stock Prediction 
+    # client = Client(TWILIO_SID, TWILIO_AUTH_TOKEN)
+    # message = client.messages.create(
+    #     body=messages[i],
+    #     from_=VIRTUAL_TWILIO_NUMBER,
+    #     to=VERIFIED_NUMBER
+    # )
+
+    #Whatsapp Message - First the Stock News Update, and then the Stock Prediction 
+    #IMPORTANT >>> Log into your whatsapp account via web.whatsapp.com if you want to use this option 
+    try:
+        current_time = str(datetime.datetime.now())
+        current_hour = int(current_time[11:13])
+        current_minute = int(current_time[14:16])
+
+        pywhatkit.sendwhatmsg("+12345678900", messages[i], current_hour, current_minute + 1)
+        print("Successfully Sent!")
+    except:
+        # handling exception and printing error message
+        print("An Unexpected Error!") 
